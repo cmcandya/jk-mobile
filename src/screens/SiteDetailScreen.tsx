@@ -7,6 +7,7 @@ import {
   Animated,
   Dimensions,
   Pressable,
+  ScrollView,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -20,19 +21,43 @@ const DRAWER_WIDTH = Dimensions.get("window").width * 0.75;
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 type ViewMode = "grid" | "list";
 
-const MENU_ITEMS: { key: string; label: string; icon: IconName }[] = [
+type MenuItem = { key: string; label: string; icon: IconName };
+
+const MENU_ITEMS: MenuItem[] = [
   { key: "plans", label: "Plans", icon: "view-grid" },
   { key: "specifications", label: "Specifications", icon: "format-list-text" },
   { key: "photos", label: "Photos", icon: "image" },
   { key: "crew", label: "Crew", icon: "account-group" },
   { key: "loto", label: "Lockout / Tagout", icon: "lock" },
+  { key: "forms", label: "Forms", icon: "clipboard-text" },
+  { key: "documents", label: "Documents", icon: "file-document" },
+  // --- Project Management folder inserted here ---
+  { key: "punch-list", label: "Punch List", icon: "checkbox-marked" },
+  { key: "inspections", label: "Inspections", icon: "clipboard-check" },
+  { key: "meetings", label: "Meetings", icon: "calendar-clock" },
+  { key: "schedule", label: "Schedule", icon: "calendar-month" },
+  { key: "equipment", label: "Equipment", icon: "hammer-wrench" },
+  { key: "incidents", label: "Incidents", icon: "alert-circle" },
+  { key: "directory", label: "Directory", icon: "contacts" },
 ];
+
+// Items inside the Project Management folder
+const PM_ITEMS: MenuItem[] = [
+  { key: "rfis", label: "RFIs", icon: "help-circle" },
+  { key: "submittals", label: "Submittals", icon: "send" },
+  { key: "change-orders", label: "Change Orders", icon: "swap-horizontal-circle" },
+  { key: "budget", label: "Budget", icon: "currency-usd" },
+];
+
+// Index in MENU_ITEMS where PM folder gets inserted (after Documents)
+const PM_FOLDER_INDEX = 7;
 
 export default function SiteDetailScreen({ route, navigation }: Props) {
   const { site } = route.params;
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [activeSection, setActiveSection] = useState("plans");
   const [drawerAnim] = useState(new Animated.Value(0));
+  const [pmFolderOpen, setPmFolderOpen] = useState(false);
 
   // Plans controls — lifted up so top bar can render the icons
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -75,7 +100,9 @@ export default function SiteDetailScreen({ route, navigation }: Props) {
   };
 
   const activeLabel =
-    MENU_ITEMS.find((m) => m.key === activeSection)?.label || "Plans";
+    MENU_ITEMS.find((m) => m.key === activeSection)?.label ||
+    PM_ITEMS.find((m) => m.key === activeSection)?.label ||
+    "Plans";
 
   return (
     <View style={styles.container}>
@@ -182,12 +209,71 @@ export default function SiteDetailScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         </View>
 
-        {/* Menu items — lighter bg, with hairline separators */}
-        <View style={styles.menuArea}>
+        {/* Menu items — scrollable, with PM folder in the middle */}
+        <ScrollView style={styles.menuArea} showsVerticalScrollIndicator={false}>
           {MENU_ITEMS.map((item, index) => {
             const isActive = activeSection === item.key;
             return (
               <View key={item.key}>
+                {/* Insert PM folder before this index */}
+                {index === PM_FOLDER_INDEX && (
+                  <>
+                    <TouchableOpacity
+                      style={styles.folderRow}
+                      onPress={() => setPmFolderOpen((v) => !v)}
+                      activeOpacity={0.6}
+                    >
+                      <MaterialCommunityIcons
+                        name={pmFolderOpen ? "chevron-down" : "chevron-right"}
+                        size={20}
+                        color="#94a3b8"
+                      />
+                      <MaterialCommunityIcons
+                        name="folder-outline"
+                        size={20}
+                        color="#f59e0b"
+                        style={{ marginLeft: 2, marginRight: 10 }}
+                      />
+                      <Text style={styles.folderLabel}>Project Management</Text>
+                    </TouchableOpacity>
+                    <View style={styles.menuDivider} />
+
+                    {pmFolderOpen &&
+                      PM_ITEMS.map((pmItem) => {
+                        const pmActive = activeSection === pmItem.key;
+                        return (
+                          <View key={pmItem.key}>
+                            <TouchableOpacity
+                              style={[
+                                styles.menuItem,
+                                styles.menuItemIndented,
+                                pmActive && styles.menuItemActive,
+                              ]}
+                              onPress={() => selectSection(pmItem.key)}
+                              activeOpacity={0.6}
+                            >
+                              <MaterialCommunityIcons
+                                name={pmItem.icon}
+                                size={22}
+                                color={pmActive ? "#fff" : "#e2e8f0"}
+                                style={styles.menuItemIcon}
+                              />
+                              <Text
+                                style={[
+                                  styles.menuItemLabel,
+                                  pmActive && styles.menuItemLabelActive,
+                                ]}
+                              >
+                                {pmItem.label}
+                              </Text>
+                            </TouchableOpacity>
+                            <View style={styles.menuDivider} />
+                          </View>
+                        );
+                      })}
+                  </>
+                )}
+
                 <TouchableOpacity
                   style={[styles.menuItem, isActive && styles.menuItemActive]}
                   onPress={() => selectSection(item.key)}
@@ -214,7 +300,7 @@ export default function SiteDetailScreen({ route, navigation }: Props) {
               </View>
             );
           })}
-        </View>
+        </ScrollView>
       </Animated.View>
     </View>
   );
@@ -367,6 +453,24 @@ const styles = StyleSheet.create({
   menuItemLabelActive: {
     color: "#fff",
     fontWeight: "500",
+  },
+
+  // Menu item indented (inside folder)
+  menuItemIndented: {
+    paddingLeft: 36,
+  },
+
+  // Folder row
+  folderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  folderLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#94a3b8",
   },
 
   // Menu divider
