@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,12 +11,14 @@ import {
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
+import PlansView from "../components/PlansView";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SiteDetail">;
 
 const DRAWER_WIDTH = Dimensions.get("window").width * 0.75;
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+type ViewMode = "grid" | "list";
 
 const MENU_ITEMS: { key: string; label: string; icon: IconName }[] = [
   { key: "plans", label: "Plans", icon: "view-grid" },
@@ -31,6 +33,19 @@ export default function SiteDetailScreen({ route, navigation }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [activeSection, setActiveSection] = useState("plans");
   const [drawerAnim] = useState(new Animated.Value(0));
+
+  // Plans controls — lifted up so top bar can render the icons
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [allCollapsed, setAllCollapsed] = useState(false);
+  const [collapseToggleCount, setCollapseToggleCount] = useState(0);
+
+  const toggleViewMode = () =>
+    setViewMode((m) => (m === "grid" ? "list" : "grid"));
+
+  const toggleAllCollapsed = () => {
+    setAllCollapsed((v) => !v);
+    setCollapseToggleCount((c) => c + 1);
+  };
 
   const openDrawer = () => {
     setDrawerOpen(true);
@@ -81,13 +96,54 @@ export default function SiteDetailScreen({ route, navigation }: Props) {
             {activeLabel}
           </Text>
         </View>
-        <View style={styles.topBarRight} />
+
+        {/* Right side icons — only show for Plans */}
+        {activeSection === "plans" ? (
+          <View style={styles.topBarActions}>
+            <TouchableOpacity
+              style={styles.topBarActionBtn}
+              onPress={toggleAllCollapsed}
+              activeOpacity={0.6}
+            >
+              <MaterialCommunityIcons
+                name={
+                  allCollapsed
+                    ? "arrow-expand-vertical"
+                    : "arrow-collapse-vertical"
+                }
+                size={22}
+                color="#94a3b8"
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.topBarActionBtn}
+              onPress={toggleViewMode}
+              activeOpacity={0.6}
+            >
+              <MaterialCommunityIcons
+                name={
+                  viewMode === "grid"
+                    ? "view-agenda-outline"
+                    : "view-grid-outline"
+                }
+                size={20}
+                color="#94a3b8"
+              />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.topBarRight} />
+        )}
       </View>
 
       {/* Content area */}
       <View style={styles.content}>
         {activeSection === "plans" ? (
-          <PlansView />
+          <PlansView
+            viewMode={viewMode}
+            allCollapsed={allCollapsed}
+            collapseToggleCount={collapseToggleCount}
+          />
         ) : (
           <View style={styles.placeholderView}>
             <Text style={styles.placeholderText}>{activeLabel}</Text>
@@ -164,34 +220,6 @@ export default function SiteDetailScreen({ route, navigation }: Props) {
   );
 }
 
-function PlansView() {
-  return (
-    <View style={styles.plansContainer}>
-      <Text style={styles.plansTitle}>Plans</Text>
-      <Text style={styles.plansSubtitle}>All tasks on plans</Text>
-
-      {/* Search bar */}
-      <View style={styles.searchBar}>
-        <MaterialCommunityIcons
-          name="magnify"
-          size={20}
-          color="#64748b"
-          style={{ marginRight: 10 }}
-        />
-        <Text style={styles.searchPlaceholder}>Search plans</Text>
-      </View>
-
-      {/* Empty state */}
-      <View style={styles.plansEmpty}>
-        <Text style={styles.plansEmptyText}>No plans uploaded yet</Text>
-        <Text style={styles.plansEmptySubtext}>
-          Upload plans from the web app to view them here
-        </Text>
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -201,19 +229,17 @@ const styles = StyleSheet.create({
   // Status bar
   statusBarSpacer: {
     height: 38,
-    backgroundColor: "#131c27",
+    backgroundColor: "#1e2a3a",
   },
 
   // Top bar
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 8,
-    paddingBottom: 10,
+    paddingTop: 4,
+    paddingBottom: 4,
     paddingHorizontal: 12,
-    backgroundColor: "#1a2332",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#2d3d50",
+    backgroundColor: "#131c27",
   },
   menuButton: {
     width: 44,
@@ -232,6 +258,17 @@ const styles = StyleSheet.create({
   },
   topBarRight: {
     width: 44,
+  },
+  topBarActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  topBarActionBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   // Content
@@ -275,7 +312,7 @@ const styles = StyleSheet.create({
     paddingTop: 38,
   },
 
-  // Drawer header — DARKER background, tight padding
+  // Drawer header
   drawerHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -302,13 +339,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Menu area — lighter bg than header
+  // Menu area
   menuArea: {
     flex: 1,
     backgroundColor: "#1e2a3a",
   },
 
-  // Menu items — moderate padding, filled icons
+  // Menu items
   menuItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -332,60 +369,11 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  // Subtle dark separator between menu items
+  // Menu divider
   menuDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: "#0a1018",
     marginLeft: 20,
     marginRight: 20,
-  },
-
-  // Plans view
-  plansContainer: {
-    flex: 1,
-    paddingTop: 24,
-    paddingHorizontal: 20,
-  },
-  plansTitle: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#e2e8f0",
-  },
-  plansSubtitle: {
-    fontSize: 15,
-    color: "#64748b",
-    marginTop: 4,
-    marginBottom: 20,
-  },
-  searchBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#2a3a4e",
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 24,
-  },
-  searchPlaceholder: {
-    fontSize: 15,
-    color: "#64748b",
-  },
-  plansEmpty: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingBottom: 100,
-  },
-  plansEmptyText: {
-    fontSize: 17,
-    fontWeight: "600",
-    color: "#475569",
-  },
-  plansEmptySubtext: {
-    fontSize: 14,
-    color: "#3b4c63",
-    marginTop: 8,
-    textAlign: "center",
-    lineHeight: 20,
   },
 });
