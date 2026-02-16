@@ -10,22 +10,15 @@ import {
   TextInput,
   ActivityIndicator,
 } from "react-native";
-import { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import type { RootStackParamList, Site } from "../navigation/types";
 
-type Site = {
-  id: string;
-  site_name: string;
-  job_number: string | null;
-  address: string | null;
-  status: string | null;
+type Props = NativeStackScreenProps<RootStackParamList, "SiteList"> & {
+  session: { user: { id: string; email?: string } };
 };
 
-type Props = {
-  session: Session;
-};
-
-export default function SiteListScreen({ session }: Props) {
+export default function SiteListScreen({ session, navigation }: Props) {
   const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -92,7 +85,11 @@ export default function SiteListScreen({ session }: Props) {
     : sites;
 
   const renderSite = ({ item, index }: { item: Site; index: number }) => (
-    <TouchableOpacity style={styles.row} activeOpacity={0.6}>
+    <TouchableOpacity
+      style={styles.row}
+      activeOpacity={0.6}
+      onPress={() => navigation.navigate("SiteDetail", { site: item })}
+    >
       <Text style={styles.siteName} numberOfLines={1}>
         {item.site_name}
       </Text>
