@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,9 +7,16 @@ import {
   ScrollView,
   TextInput,
   Dimensions,
+  ActivityIndicator,
+  RefreshControl,
+  Image,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { plans, folders, type Plan } from "../data/plans";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/types";
+import { fetchCurrentSheets } from "../lib/plans/api";
+import type { PlanSheetForList, PlanFolder } from "../lib/plans/types";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CARD_GAP = 10;
@@ -21,37 +28,70 @@ const CARD_WIDTH =
 const THUMB_HEIGHT = CARD_WIDTH * 0.7;
 
 type ViewMode = "grid" | "list";
+type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 type PlansViewProps = {
+  jobSiteId: string;
   viewMode: ViewMode;
   allCollapsed: boolean;
   collapseToggleCount: number;
 };
 
-const ALL_FOLDER_IDS = ["unfiled", ...folders.map((f) => f.id)];
-
 export default function PlansView({
+  jobSiteId,
   viewMode,
   allCollapsed,
   collapseToggleCount,
 }: PlansViewProps) {
+  const navigation = useNavigation<Nav>();
+  const [sheets, setSheets] = useState<PlanSheetForList[]>([]);
+  const [folders, setFolders] = useState<PlanFolder[]>([]);
+  const [sortedIds, setSortedIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [collapsedFolders, setCollapsedFolders] = useState<
     Record<string, boolean>
   >({});
+
+  // Load data
+  const loadData = useCallback(async () => {
+    try {
+      setError(null);
+      const result = await fetchCurrentSheets(jobSiteId);
+      setSheets(result.sheets);
+      setFolders(result.folders);
+      setSortedIds(result.sortedIds);
+    } catch (err: any) {
+      console.error("Failed to load plans:", err);
+      setError(err.message || "Failed to load plans");
+    }
+  }, [jobSiteId]);
+
+  useEffect(() => {
+    loadData().finally(() => setLoading(false));
+  }, [loadData]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  }, [loadData]);
 
   // Sync collapse state when parent toggles all
   const lastToggle = useRef(collapseToggleCount);
   useEffect(() => {
     if (collapseToggleCount !== lastToggle.current) {
       lastToggle.current = collapseToggleCount;
+      const allFolderIds = ["unfiled", ...folders.map((f) => f.id)];
       const newState: Record<string, boolean> = {};
-      for (const id of ALL_FOLDER_IDS) {
+      for (const id of allFolderIds) {
         newState[id] = allCollapsed;
       }
       setCollapsedFolders(newState);
     }
-  }, [allCollapsed, collapseToggleCount]);
+  }, [allCollapsed, collapseToggleCount, folders]);
 
   const toggleFolder = (folderId: string) => {
     setCollapsedFolders((prev) => ({
@@ -60,22 +100,95 @@ export default function PlansView({
     }));
   };
 
-  const filteredPlans = search.trim()
-    ? plans.filter(
-        (p) =>
-          p.sheetNumber.toLowerCase().includes(search.toLowerCase()) ||
-          p.title.toLowerCase().includes(search.toLowerCase())
-      )
-    : plans;
+  // Navigate to plan viewer
+  const openSheet = (sheet: PlanSheetForList) => {
+    navigation.navigate("PlanViewer", {
+      sheetId: sheet.id,
+      sheetNumber: sheet.sheet_number,
+      title: sheet.title,
+      thumbnailUrl: sheet.thumbnail_url,
+      sortedIds,
+      render: sheet.render
+        ? {
+            dziPath: sheet.render.dzi_path,
+            tileFormat: sheet.render.tile_format,
+            tileSize: sheet.render.tile_size,
+            overlap: sheet.render.overlap,
+            widthPx: sheet.render.width_px,
+            heightPx: sheet.render.height_px,
+            levelCount: sheet.render.level_count,
+          }
+        : null,
+    });
+  };
 
-  // Group plans by folder
-  const unfiledPlans = filteredPlans.filter((p) => p.folderId === null);
+  // Filter
+  const filteredSheets = search.trim()
+    ? sheets.filter(
+        (s) =>
+          (s.sheet_number || "").toLowerCase().includes(search.toLowerCase()) ||
+          (s.title || "").toLowerCase().includes(search.toLowerCase())
+      )
+    : sheets;
+
+  // Group by folder
+  const unfiledSheets = filteredSheets.filter((s) => s.folder_id === null);
   const folderGroups = folders
     .map((folder) => ({
       folder,
-      plans: filteredPlans.filter((p) => p.folderId === folder.id),
+      sheets: filteredSheets.filter((s) => s.folder_id === folder.id),
     }))
-    .filter((g) => g.plans.length > 0);
+    .filter((g) => g.sheets.length > 0);
+
+  // Loading state
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#4a90d9" />
+        <Text style={styles.loadingText}>Loading plans...</Text>
+      </View>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <View style={styles.centered}>
+        <MaterialCommunityIcons
+          name="alert-circle-outline"
+          size={40}
+          color="#64748b"
+        />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => {
+            setLoading(true);
+            loadData().finally(() => setLoading(false));
+          }}
+        >
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Empty state
+  if (sheets.length === 0) {
+    return (
+      <View style={styles.centered}>
+        <MaterialCommunityIcons
+          name="file-document-outline"
+          size={48}
+          color="#475569"
+        />
+        <Text style={styles.emptyText}>No plans yet</Text>
+        <Text style={styles.emptySubtext}>
+          Upload plans from the web app to view them here
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -109,37 +222,52 @@ export default function PlansView({
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#4a90d9"
+            colors={["#4a90d9"]}
+            progressBackgroundColor="#1e293b"
+          />
+        }
       >
         {/* Unfiled plans */}
-        {unfiledPlans.length > 0 && (
+        {unfiledSheets.length > 0 && (
           <FolderSection
             label="Unfiled plans"
-            count={unfiledPlans.length}
-            plans={unfiledPlans}
+            count={unfiledSheets.length}
+            sheets={unfiledSheets}
             collapsed={collapsedFolders["unfiled"] || false}
             onToggle={() => toggleFolder("unfiled")}
             viewMode={viewMode}
+            onPressSheet={openSheet}
           />
         )}
 
         {/* Folder sections */}
-        {folderGroups.map(({ folder, plans: folderPlans }) => (
+        {folderGroups.map(({ folder, sheets: folderSheets }) => (
           <FolderSection
             key={folder.id}
             label={folder.name}
-            count={folderPlans.length}
-            plans={folderPlans}
+            count={folderSheets.length}
+            sheets={folderSheets}
             collapsed={collapsedFolders[folder.id] || false}
             onToggle={() => toggleFolder(folder.id)}
             viewMode={viewMode}
+            onPressSheet={openSheet}
           />
         ))}
-      </ScrollView>
 
-      {/* FAB — Add plan */}
-      <TouchableOpacity style={styles.fab} activeOpacity={0.8}>
-        <MaterialCommunityIcons name="plus" size={28} color="#fff" />
-      </TouchableOpacity>
+        {/* No results from search */}
+        {filteredSheets.length === 0 && search.trim().length > 0 && (
+          <View style={styles.noResults}>
+            <Text style={styles.noResultsText}>
+              No plans match "{search}"
+            </Text>
+          </View>
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -147,22 +275,24 @@ export default function PlansView({
 function FolderSection({
   label,
   count,
-  plans,
+  sheets,
   collapsed,
   onToggle,
   viewMode,
+  onPressSheet,
 }: {
   label: string;
   count: number;
-  plans: Plan[];
+  sheets: PlanSheetForList[];
   collapsed: boolean;
   onToggle: () => void;
   viewMode: ViewMode;
+  onPressSheet: (sheet: PlanSheetForList) => void;
 }) {
   // Build rows of 2 for grid
-  const rows: Plan[][] = [];
-  for (let i = 0; i < plans.length; i += NUM_COLUMNS) {
-    rows.push(plans.slice(i, i + NUM_COLUMNS));
+  const rows: PlanSheetForList[][] = [];
+  for (let i = 0; i < sheets.length; i += NUM_COLUMNS) {
+    rows.push(sheets.slice(i, i + NUM_COLUMNS));
   }
 
   return (
@@ -192,8 +322,12 @@ function FolderSection({
           <View style={styles.grid}>
             {rows.map((row, rowIndex) => (
               <View key={rowIndex} style={styles.gridRow}>
-                {row.map((plan) => (
-                  <PlanCard key={plan.id} plan={plan} />
+                {row.map((sheet) => (
+                  <PlanCard
+                    key={sheet.id}
+                    sheet={sheet}
+                    onPress={() => onPressSheet(sheet)}
+                  />
                 ))}
                 {row.length < NUM_COLUMNS && (
                   <View style={{ width: CARD_WIDTH }} />
@@ -203,11 +337,12 @@ function FolderSection({
           </View>
         ) : (
           <View style={styles.listContainer}>
-            {plans.map((plan, index) => (
+            {sheets.map((sheet, index) => (
               <TouchableOpacity
-                key={plan.id}
+                key={sheet.id}
                 style={styles.listRow}
                 activeOpacity={0.6}
+                onPress={() => onPressSheet(sheet)}
               >
                 <MaterialCommunityIcons
                   name="file-document-outline"
@@ -215,11 +350,13 @@ function FolderSection({
                   color="#64748b"
                   style={{ marginRight: 12 }}
                 />
-                <Text style={styles.listSheet}>{plan.sheetNumber}</Text>
-                <Text style={styles.listTitle} numberOfLines={1}>
-                  {plan.title}
+                <Text style={styles.listSheet}>
+                  {sheet.sheet_number || "-"}
                 </Text>
-                {index < plans.length - 1 && (
+                <Text style={styles.listTitle} numberOfLines={1}>
+                  {sheet.title || "Untitled"}
+                </Text>
+                {index < sheets.length - 1 && (
                   <View style={styles.listDivider} />
                 )}
               </TouchableOpacity>
@@ -230,25 +367,43 @@ function FolderSection({
   );
 }
 
-function PlanCard({ plan }: { plan: Plan }) {
+function PlanCard({
+  sheet,
+  onPress,
+}: {
+  sheet: PlanSheetForList;
+  onPress: () => void;
+}) {
+  const [thumbError, setThumbError] = useState(false);
+  const hasThumb = sheet.thumbnail_url && !thumbError;
+
   return (
-    <TouchableOpacity style={styles.card} activeOpacity={0.7}>
+    <TouchableOpacity style={styles.card} activeOpacity={0.7} onPress={onPress}>
       {/* Thumbnail area */}
       <View style={styles.cardThumb}>
-        <MaterialCommunityIcons
-          name="file-document-outline"
-          size={40}
-          color="#475569"
-        />
+        {hasThumb ? (
+          <Image
+            source={{ uri: sheet.thumbnail_url! }}
+            style={styles.cardThumbImage}
+            resizeMode="contain"
+            onError={() => setThumbError(true)}
+          />
+        ) : (
+          <MaterialCommunityIcons
+            name="file-document-outline"
+            size={40}
+            color="#475569"
+          />
+        )}
       </View>
 
       {/* Info below thumbnail */}
       <View style={styles.cardInfo}>
         <Text style={styles.cardSheet} numberOfLines={1}>
-          {plan.sheetNumber}
+          {sheet.sheet_number || "-"}
         </Text>
         <Text style={styles.cardTitle} numberOfLines={1}>
-          {plan.title}
+          {sheet.title || "Untitled"}
         </Text>
       </View>
     </TouchableOpacity>
@@ -260,21 +415,57 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#162030",
   },
-
-  // Title row
-  titleRow: {
-    flexDirection: "row",
+  centered: {
+    flex: 1,
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: HORIZONTAL_PAD,
-    paddingTop: 14,
-    paddingBottom: 6,
+    justifyContent: "center",
+    backgroundColor: "#162030",
+    paddingHorizontal: 32,
   },
-  title: {
+  loadingText: {
+    fontSize: 14,
+    color: "#64748b",
+    marginTop: 12,
+  },
+  errorText: {
+    fontSize: 15,
+    color: "#94a3b8",
+    marginTop: 12,
+    textAlign: "center",
+  },
+  retryButton: {
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: "#243040",
+    borderRadius: 6,
+  },
+  retryText: {
+    fontSize: 14,
+    color: "#4a90d9",
+    fontWeight: "600",
+  },
+  emptyText: {
     fontSize: 17,
     fontWeight: "600",
-    color: "#e2e8f0",
+    color: "#64748b",
+    marginTop: 12,
   },
+  emptySubtext: {
+    fontSize: 14,
+    color: "#475569",
+    marginTop: 6,
+    textAlign: "center",
+  },
+  noResults: {
+    paddingTop: 40,
+    alignItems: "center",
+  },
+  noResultsText: {
+    fontSize: 15,
+    color: "#64748b",
+  },
+
   // Search
   searchRow: {
     paddingHorizontal: HORIZONTAL_PAD,
@@ -349,6 +540,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  cardThumbImage: {
+    width: "100%",
+    height: "100%",
+  },
   cardInfo: {
     paddingHorizontal: 8,
     paddingTop: 6,
@@ -364,24 +559,6 @@ const styles = StyleSheet.create({
     color: "#64748b",
     marginTop: 2,
     textTransform: "uppercase",
-  },
-
-  // FAB
-  fab: {
-    position: "absolute",
-    bottom: 24,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#4a90d9",
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
   },
 
   // List mode

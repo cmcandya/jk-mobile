@@ -167,6 +167,7 @@ export default function SiteDetailScreen({ route, navigation }: Props) {
       <View style={styles.content}>
         {activeSection === "plans" ? (
           <PlansView
+            jobSiteId={site.id}
             viewMode={viewMode}
             allCollapsed={allCollapsed}
             collapseToggleCount={collapseToggleCount}

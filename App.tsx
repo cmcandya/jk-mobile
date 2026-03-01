@@ -9,6 +9,7 @@ import { supabase } from "./src/lib/supabase";
 import LoginScreen from "./src/screens/LoginScreen";
 import SiteListScreen from "./src/screens/SiteListScreen";
 import SiteDetailScreen from "./src/screens/SiteDetailScreen";
+import PlanViewerScreen from "./src/screens/PlanViewerScreen";
 import type { RootStackParamList } from "./src/navigation/types";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -76,6 +77,11 @@ export default function App() {
         <Stack.Screen
           name="SiteDetail"
           component={SiteDetailScreen}
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="PlanViewer"
+          component={PlanViewerScreen}
           options={{ animation: "slide_from_right" }}
         />
       </Stack.Navigator>
