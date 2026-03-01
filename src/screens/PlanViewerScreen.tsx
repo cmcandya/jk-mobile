@@ -106,7 +106,7 @@ export default function PlanViewerScreen({ route, navigation }: Props) {
           )}
         </View>
         <View style={styles.topBarRight}>
-          {/* Future: search, kebab menu */}
+          <Text style={styles.buildLabel}>v2</Text>
         </View>
       </View>
 
@@ -211,6 +211,12 @@ const styles = StyleSheet.create({
   },
   topBarRight: {
     width: 44,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  buildLabel: {
+    fontSize: 10,
+    color: "#475569",
   },
   canvasArea: {
     flex: 1,

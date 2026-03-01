@@ -61,10 +61,7 @@ export default function PlanViewerCanvas({
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
 
-  // Gesture tracking
-  const savedScale = useSharedValue(1);
-  const savedTranslateX = useSharedValue(0);
-  const savedTranslateY = useSharedValue(0);
+  // Gesture tracking (only needed for double-tap)
   const lastTapTime = useSharedValue(0);
 
   // Thumbnail as Skia image
@@ -81,9 +78,6 @@ export default function PlanViewerCanvas({
       scale.value = fitCamera.scale;
       translateX.value = fitCamera.tx;
       translateY.value = fitCamera.ty;
-      savedScale.value = fitCamera.scale;
-      savedTranslateX.value = fitCamera.tx;
-      savedTranslateY.value = fitCamera.ty;
     }
   }, [canvasSize !== null]); // Only run once when canvas size is first known
 
@@ -156,35 +150,37 @@ export default function PlanViewerCanvas({
   const minScale = fitCamera?.scale ?? 0.1;
   const maxScale = 1; // 1:1 pixel
 
+  // Pinch: uses onChange for incremental deltas (more reliable on Android
+  // than onUpdate with saved values). Each frame applies a small scale change
+  // and adjusts translation to keep the focal point fixed.
   const pinchGesture = Gesture.Pinch()
-    .onStart(() => {
-      savedScale.value = scale.value;
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
-    })
-    .onUpdate((e) => {
-      const newScale = Math.max(minScale, Math.min(maxScale, savedScale.value * e.scale));
+    .onChange((e) => {
+      const oldScale = scale.value;
+      const newScale = Math.max(
+        minScale,
+        Math.min(maxScale, oldScale * e.scaleChange)
+      );
 
-      // Zoom toward focal point
-      const ratio = newScale / savedScale.value;
-      translateX.value = e.focalX - ratio * (e.focalX - savedTranslateX.value);
-      translateY.value = e.focalY - ratio * (e.focalY - savedTranslateY.value);
-      scale.value = newScale;
+      if (newScale !== oldScale) {
+        // Zoom toward focal point: keep the image point under focalX/Y fixed
+        const ratio = newScale / oldScale;
+        translateX.value = e.focalX - ratio * (e.focalX - translateX.value);
+        translateY.value = e.focalY - ratio * (e.focalY - translateY.value);
+        scale.value = newScale;
+      }
     })
     .onEnd(() => {
       runOnJS(syncViewport)();
     });
 
+  // Pan: single finger only (two-finger movement handled by pinch focal point).
+  // Uses onChange for incremental deltas.
   const panGesture = Gesture.Pan()
     .minPointers(1)
     .maxPointers(1)
-    .onStart(() => {
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
-    })
-    .onUpdate((e) => {
-      translateX.value = savedTranslateX.value + e.translationX;
-      translateY.value = savedTranslateY.value + e.translationY;
+    .onChange((e) => {
+      translateX.value += e.changeX;
+      translateY.value += e.changeY;
     })
     .onEnd(() => {
       runOnJS(syncViewport)();
